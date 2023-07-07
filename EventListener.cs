@@ -1,6 +1,8 @@
 ﻿using Bindito.Core;
 using System;
+using System.IO;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using Timberborn.BaseComponentSystem;
 using Timberborn.BuildingsBlocking;
@@ -18,6 +20,7 @@ namespace AutoRecipe
     public class EventListener : ILoadableSingleton
     {
         private EventBus eventBus;
+        private ConcurrentDictionary<Manufactory, RecipeSpecification> recipeSwapsPending = new ConcurrentDictionary<Manufactory, RecipeSpecification>();
 
         [Inject]
         public void InjectDependencies(EventBus inEventBus)
@@ -46,7 +49,7 @@ namespace AutoRecipe
                 foreach (Building current in allBuildings)
                 {
                     DistrictBuilding district = current.GetComponentFast<DistrictBuilding>();
-                    if (district != null && district.District.Equals(center))
+                    if (district != null && district.District != null && district.District.Equals(center))
                     {
                         buildings.Add(current);
                     }
@@ -68,7 +71,7 @@ namespace AutoRecipe
 
                     //Update manufactory list: Only consider manufactories that have more than 1 recipe option, and don't swap the recipes on the mine or refinery
                     Manufactory currentManufactory = currentBuilding.GetComponentFast<Manufactory>();
-                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Mine") && !currentManufactory.name.Contains("Refinery") && !currentManufactory.name.Contains("Hydroponic"))
+                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Mine") && !currentManufactory.name.Contains("Refinery") && pause != null && !pause.Paused)
                     {
                         manufactories.Add(currentManufactory);
                     }
@@ -109,11 +112,33 @@ namespace AutoRecipe
                     //Select the minimum recipe, if a valid one was found and it's different fro mthe currently selected recipe
                     if (minRecipe != null && !minRecipe.Equals(current.CurrentRecipe))
                     {
-                        //Set the new recipe
-                        current.SetRecipe(minRecipe);
+                        //Set up the new recipe to be swapped when current production is finished
+                        if (recipeSwapsPending.Keys.Contains(current))
+                        {
+                            recipeSwapsPending.Remove(current, out RecipeSpecification dontCare);
+                        }
+                        else
+                        {
+                            current.ProductionFinished += ProductionFinished;
+                        }
+                        recipeSwapsPending.TryAdd(current, current.CurrentRecipe);
                     }
                 }
             }
+        }
+
+        private void ProductionFinished(object sender, EventArgs e)
+        {
+            //Cast sender
+            Manufactory manufactory = (Manufactory)sender;
+
+            //Clean up and deregister handler
+            RecipeSpecification toSwap;
+            recipeSwapsPending.Remove(manufactory, out toSwap);
+            manufactory.ProductionFinished -= ProductionFinished;
+
+            //Execute the swap
+            manufactory.SetRecipe(toSwap);
         }
 
         public void UpdateStorageData(Inventory inventory, Dictionary<string, StorageData> toUpdate, bool useAllowedGoods)
