@@ -1,0 +1,8 @@
+{
+  "Name": "AutoRecipe",
+  "Version": "1.0.0",
+  "UniqueId": "autorecipe",
+  "MinimumApiVersion": "0.5.4",
+  "MinimumGameVersion": "0.4.1",
+  "EntryDll": "AutoRecipe.dll"
+}
