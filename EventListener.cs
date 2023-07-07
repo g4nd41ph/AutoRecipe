@@ -68,7 +68,7 @@ namespace AutoRecipe
 
                     //Update manufactory list: Only consider manufactories that have more than 1 recipe option, and don't swap the recipes on the mine or refinery
                     Manufactory currentManufactory = currentBuilding.GetComponentFast<Manufactory>();
-                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Mine") && !currentManufactory.name.Contains("Refinery"))
+                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Mine") && !currentManufactory.name.Contains("Refinery") && !currentManufactory.name.Contains("Hydroponic"))
                     {
                         manufactories.Add(currentManufactory);
                     }
