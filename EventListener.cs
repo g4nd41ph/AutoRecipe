@@ -109,7 +109,7 @@ namespace AutoRecipe
                         }
                     }
 
-                    //Select the minimum recipe, if a valid one was found and it's different fro mthe currently selected recipe
+                    //Select the minimum recipe, if a valid one was found and it's different from the currently selected recipe
                     if (minRecipe != null && !minRecipe.Equals(current.CurrentRecipe))
                     {
                         //Set up the new recipe to be swapped when current production is finished
@@ -121,7 +121,7 @@ namespace AutoRecipe
                         {
                             current.ProductionFinished += ProductionFinished;
                         }
-                        recipeSwapsPending.TryAdd(current, current.CurrentRecipe);
+                        recipeSwapsPending.TryAdd(current, minRecipe);
                     }
                 }
             }

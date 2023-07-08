@@ -1,5 +1,4 @@
 ﻿using System;
-using Timberborn.Goods;
 
 namespace AutoRecipe
 {
