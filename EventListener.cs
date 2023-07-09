@@ -89,7 +89,7 @@ namespace AutoRecipe
                         foreach (GoodAmount ingredient in currentRecipe.Ingredients)
                         {
                             //If there is no availability of an ingredient, do not switch to the associated recipe
-                            if (!districtInventory.Keys.Contains(ingredient.GoodId) || districtInventory[ingredient.GoodId].Stock < 1)
+                            if (!districtInventory.Keys.Contains(ingredient.GoodId) || districtInventory[ingredient.GoodId].Stock < ingredient.Amount)
                             {
                                 valid = false;
                             }
@@ -101,7 +101,7 @@ namespace AutoRecipe
                             continue;
                         }
 
-                        //Check storage levels against current lowest
+                        //Check storage levels and pick the recipe with the lowest % filled storage
                         if (districtInventory[currentRecipe.Products[0].GoodId].CompareTo(minStorage) < 0)
                         {
                             minStorage = districtInventory[currentRecipe.Products[0].GoodId];
