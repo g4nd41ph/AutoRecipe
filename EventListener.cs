@@ -96,7 +96,7 @@ namespace AutoRecipe
                         }
 
                         //If the recipe was invalid or there is no storage for the recipe's output, do not switch to the recipe
-                        if (!valid || currentRecipe.Products.Count == 0 || !districtInventory.Keys.Contains(currentRecipe.Products[0].GoodId))
+                        if (!valid || currentRecipe.Products.Count == 0 || !districtInventory.Keys.Contains(currentRecipe.Products[0].GoodId) || districtInventory[currentRecipe.Products[0].GoodId].Capacity - districtInventory[currentRecipe.Products[0].GoodId].Stock < currentRecipe.Products[0].Amount)
                         {
                             continue;
                         }
@@ -113,16 +113,24 @@ namespace AutoRecipe
                     //Select the minimum recipe, if a valid one was found from among more than one option and it's different from the currently selected recipe
                     if (minRecipe != null && validCount > 1 && !minRecipe.Equals(current.CurrentRecipe))
                     {
-                        //Set up the new recipe to be swapped when current production is finished
+                        //We want to replace any currently queued swap
                         if (recipeSwapsPending.Keys.Contains(current))
                         {
+                            current.ProductionFinished -= ProductionFinished;
                             recipeSwapsPending.Remove(current, out RecipeSpecification dontCare);
                         }
+
+                        //If no production is in progress, we can swap right away
+                        if (current.ProductionProgress == 0)
+                        {
+                            current.SetRecipe(minRecipe);
+                        }
+                        //If production is ongoing, we should queue a swap when it finishes
                         else
                         {
                             current.ProductionFinished += ProductionFinished;
+                            recipeSwapsPending.TryAdd(current, minRecipe);
                         }
-                        recipeSwapsPending.TryAdd(current, minRecipe);
                     }
                 }
             }
@@ -134,9 +142,9 @@ namespace AutoRecipe
             Manufactory manufactory = (Manufactory)sender;
 
             //Clean up and deregister handler
+            manufactory.ProductionFinished -= ProductionFinished;
             RecipeSpecification toSwap;
             recipeSwapsPending.Remove(manufactory, out toSwap);
-            manufactory.ProductionFinished -= ProductionFinished;
 
             //Execute the swap
             manufactory.SetRecipe(toSwap);
