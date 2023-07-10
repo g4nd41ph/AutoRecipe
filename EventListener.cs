@@ -1,6 +1,5 @@
 ﻿using Bindito.Core;
 using System;
-using System.IO;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Linq;
@@ -69,9 +68,9 @@ namespace AutoRecipe
                         UpdateStorageData(inventory, districtInventory, currentBuilding.GetComponentFast<Stockpile>() == null && currentBuilding.GetComponentFast<DistrictCenter>() == null);
                     }
 
-                    //Update manufactory list: Only consider manufactories that have more than 1 recipe option, and don't swap the recipes on the mine or refinery
+                    //Update manufactory list: Only consider manufactories that have more than 1 recipe option, and don't swap the recipes on the refinery
                     Manufactory currentManufactory = currentBuilding.GetComponentFast<Manufactory>();
-                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Mine") && !currentManufactory.name.Contains("Refinery") && pause != null && !pause.Paused)
+                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Refinery") && pause != null && !pause.Paused)
                     {
                         manufactories.Add(currentManufactory);
                     }
@@ -82,6 +81,7 @@ namespace AutoRecipe
                 {
                     StorageData minStorage = null;
                     RecipeSpecification minRecipe = null;
+                    int validCount = 0;
                     foreach (RecipeSpecification currentRecipe in current.ProductionRecipes)
                     {
                         //Check for recipe validity
@@ -96,12 +96,13 @@ namespace AutoRecipe
                         }
 
                         //If the recipe was invalid or there is no storage for the recipe's output, do not switch to the recipe
-                        if (!valid || !districtInventory.Keys.Contains(currentRecipe.Products[0].GoodId))
+                        if (!valid || currentRecipe.Products.Count == 0 || !districtInventory.Keys.Contains(currentRecipe.Products[0].GoodId))
                         {
                             continue;
                         }
 
                         //Check storage levels and pick the recipe with the lowest % filled storage
+                        validCount++;
                         if (districtInventory[currentRecipe.Products[0].GoodId].CompareTo(minStorage) < 0)
                         {
                             minStorage = districtInventory[currentRecipe.Products[0].GoodId];
@@ -109,8 +110,8 @@ namespace AutoRecipe
                         }
                     }
 
-                    //Select the minimum recipe, if a valid one was found and it's different from the currently selected recipe
-                    if (minRecipe != null && !minRecipe.Equals(current.CurrentRecipe))
+                    //Select the minimum recipe, if a valid one was found from among more than one option and it's different from the currently selected recipe
+                    if (minRecipe != null && validCount > 1 && !minRecipe.Equals(current.CurrentRecipe))
                     {
                         //Set up the new recipe to be swapped when current production is finished
                         if (recipeSwapsPending.Keys.Contains(current))
