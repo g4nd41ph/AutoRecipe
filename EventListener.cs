@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Linq;
-using Timberborn.BaseComponentSystem;
 using Timberborn.BuildingsBlocking;
 using Timberborn.GameDistricts;
 using Timberborn.Goods;
@@ -19,12 +18,14 @@ namespace AutoRecipe
     public class EventListener : ILoadableSingleton
     {
         private EventBus eventBus;
+        private DistrictCenterRegistry centerRegistry;
         private ConcurrentDictionary<Manufactory, RecipeSpecification> recipeSwapsPending = new ConcurrentDictionary<Manufactory, RecipeSpecification>();
 
         [Inject]
-        public void InjectDependencies(EventBus inEventBus)
+        public void InjectDependencies(EventBus inEventBus, DistrictCenterRegistry inRegistry)
         {
             eventBus = inEventBus;
+            centerRegistry = inRegistry;
         }
 
         public void Load()
@@ -36,19 +37,16 @@ namespace AutoRecipe
         public void OnDaytimeStart(DaytimeStartEvent daytimeStarted)
         {
             //Get the buildings by district, since districts may have different storage levels
-            DistrictCenter[] centers = BaseComponent.FindObjectsOfType<DistrictCenter>();
-
-            //Get a list of all the buildings
-            Building[] allBuildings = BaseComponent.FindObjectsOfType<Building>();
+            DistrictCenter[] centers = centerRegistry.FinishedDistrictCenters.ToArray();
 
             foreach (DistrictCenter center in centers)
             {
-                //Get all buildings in this district
+                //Get all buildings in this district that are not paused
                 List<Building> buildings = new List<Building>();
-                foreach (Building current in allBuildings)
+                foreach (Building current in center.DistrictBuildingRegistry.GetEnabledBuildingsInstant<Building>())
                 {
-                    DistrictBuilding district = current.GetComponentFast<DistrictBuilding>();
-                    if (district != null && district.District != null && district.District.Equals(center))
+                    PausableBuilding pause = current.GetComponentFast<PausableBuilding>();
+                    if (pause != null && !pause.Paused)
                     {
                         buildings.Add(current);
                     }
@@ -59,10 +57,9 @@ namespace AutoRecipe
                 List<Manufactory> manufactories = new List<Manufactory>();
                 foreach (Building currentBuilding in buildings)
                 {
-                    //Update inventory: Do not include inventories for construction sites, district crossings,or paused buildings
+                    //Update inventory: Do not include inventories for construction sites or district crossings
                     Inventory inventory = currentBuilding.GetComponentFast<Inventory>();
-                    PausableBuilding pause = currentBuilding.GetComponentFast<PausableBuilding>();
-                    if (inventory != null && !inventory.ComponentName.Contains("ConstructionSite") && !inventory.ComponentName.Contains("DistrictCrossing") && pause != null && !pause.Paused)
+                    if (inventory != null && !inventory.ComponentName.Contains("ConstructionSite") && !inventory.ComponentName.Contains("DistrictCrossing"))
                     {
                         //Use Allowed Goods mode for most inventories. Stockpiles and District Centers must be handled in Stock mode
                         UpdateStorageData(inventory, districtInventory, currentBuilding.GetComponentFast<Stockpile>() == null && currentBuilding.GetComponentFast<DistrictCenter>() == null);
@@ -70,7 +67,7 @@ namespace AutoRecipe
 
                     //Update manufactory list: Only consider manufactories that have more than 1 recipe option, and don't swap the recipes on the refinery
                     Manufactory currentManufactory = currentBuilding.GetComponentFast<Manufactory>();
-                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Refinery") && pause != null && !pause.Paused)
+                    if (currentManufactory != null && currentManufactory.ProductionRecipes.Length > 1 && !currentManufactory.name.Contains("Refinery"))
                     {
                         manufactories.Add(currentManufactory);
                     }
@@ -85,28 +82,20 @@ namespace AutoRecipe
                     foreach (RecipeSpecification currentRecipe in current.ProductionRecipes)
                     {
                         //Check for recipe validity
-                        bool valid = true;
-                        foreach (GoodAmount ingredient in currentRecipe.Ingredients)
-                        {
-                            //If there is no availability of an ingredient, do not switch to the associated recipe
-                            if (!districtInventory.Keys.Contains(ingredient.GoodId) || districtInventory[ingredient.GoodId].Stock < ingredient.Amount)
-                            {
-                                valid = false;
-                            }
-                        }
-
-                        //If the recipe was invalid or there is no storage for the recipe's output, do not switch to the recipe
-                        if (!valid || currentRecipe.Products.Count == 0 || !districtInventory.Keys.Contains(currentRecipe.Products[0].GoodId) || districtInventory[currentRecipe.Products[0].GoodId].Capacity - districtInventory[currentRecipe.Products[0].GoodId].Stock < currentRecipe.Products[0].Amount)
+                        if (!CheckRecipeValid(districtInventory, currentRecipe))
                         {
                             continue;
                         }
+                        validCount++;
 
                         //Check storage levels and pick the recipe with the lowest % filled storage
-                        validCount++;
-                        if (districtInventory[currentRecipe.Products[0].GoodId].CompareTo(minStorage) < 0)
+                        foreach (GoodAmount currentProduct in currentRecipe.Products)
                         {
-                            minStorage = districtInventory[currentRecipe.Products[0].GoodId];
-                            minRecipe = currentRecipe;
+                            if (districtInventory[currentProduct.GoodId].CompareTo(minStorage) < 0)
+                            {
+                                minStorage = districtInventory[currentProduct.GoodId];
+                                minRecipe = currentRecipe;
+                            }
                         }
                     }
 
@@ -125,6 +114,7 @@ namespace AutoRecipe
                         {
                             current.SetRecipe(minRecipe);
                         }
+
                         //If production is ongoing, we should queue a swap when it finishes
                         else
                         {
@@ -134,6 +124,37 @@ namespace AutoRecipe
                     }
                 }
             }
+        }
+
+        private bool CheckRecipeValid(Dictionary<string, StorageData> districtInventory, RecipeSpecification recipe)
+        {
+            //Check for ingredients
+            foreach (GoodAmount ingredient in recipe.Ingredients)
+            {
+                //If there is no availability of an ingredient, do not switch to the associated recipe
+                if (!districtInventory.Keys.Contains(ingredient.GoodId) || districtInventory[ingredient.GoodId].Stock < ingredient.Amount)
+                {
+                    return false;
+                }
+            }
+
+            //Don't consider recipes with no good outputs
+            if (recipe.Products.Count == 0)
+            {
+                return false;
+            }
+
+            //Check for space for all products            
+            foreach (GoodAmount current in recipe.Products)
+            {
+                if (!districtInventory.Keys.Contains(current.GoodId) || districtInventory[current.GoodId].Capacity - districtInventory[current.GoodId].Stock < current.Amount)
+                {
+                    return false;
+                }
+            }
+
+            //All checks OK
+            return true;
         }
 
         private void ProductionFinished(object sender, EventArgs e)
