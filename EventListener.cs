@@ -76,9 +76,10 @@ namespace AutoRecipe
                 //Iterate through manufactories and pick the valid recipe with the lowest proportion of filled storage
                 foreach (Manufactory current in manufactories)
                 {
+                    string minGoodId = "";
                     StorageData minStorage = null;
                     RecipeSpecification minRecipe = null;
-                    int validCount = 0;
+                    bool currentRecipeValid = false;
                     foreach (RecipeSpecification currentRecipe in current.ProductionRecipes)
                     {
                         //Check for recipe validity
@@ -86,44 +87,85 @@ namespace AutoRecipe
                         {
                             continue;
                         }
-                        validCount++;
+
+                        //Mark the current recipe as valid
+                        if (currentRecipe.Equals(current.CurrentRecipe))
+                        {
+                            currentRecipeValid = true;
+                        }
 
                         //Check storage levels and pick the recipe with the lowest % filled storage
                         foreach (GoodAmount currentProduct in currentRecipe.Products)
                         {
                             if (districtInventory[currentProduct.GoodId].CompareTo(minStorage) < 0)
                             {
+                                minGoodId = currentProduct.GoodId;
                                 minStorage = districtInventory[currentProduct.GoodId];
                                 minRecipe = currentRecipe;
                             }
                         }
                     }
 
-                    //Select the minimum recipe, if a valid one was found from among more than one option and it's different from the currently selected recipe
-                    if (minRecipe != null && validCount > 1 && !minRecipe.Equals(current.CurrentRecipe))
+                    //Make sure that the currently selected recipe isn't already producing the minimum storage output
+                    if (!CheckRecipeSwapOK(minGoodId, minRecipe, current.CurrentRecipe, currentRecipeValid))
                     {
-                        //We want to replace any currently queued swap
-                        if (recipeSwapsPending.Keys.Contains(current))
-                        {
-                            current.ProductionFinished -= ProductionFinished;
-                            recipeSwapsPending.Remove(current, out RecipeSpecification dontCare);
-                        }
+                        continue;
+                    }
 
-                        //If no production is in progress, we can swap right away
-                        if (current.ProductionProgress == 0)
-                        {
-                            current.SetRecipe(minRecipe);
-                        }
+                    //We want to replace any currently queued swap
+                    if (recipeSwapsPending.Keys.Contains(current))
+                    {
+                        current.ProductionFinished -= ProductionFinished;
+                        recipeSwapsPending.Remove(current, out RecipeSpecification dontCare);
+                    }
 
-                        //If production is ongoing, we should queue a swap when it finishes
-                        else
-                        {
-                            current.ProductionFinished += ProductionFinished;
-                            recipeSwapsPending.TryAdd(current, minRecipe);
-                        }
+                    //If no production is in progress, we can swap right away
+                    if (current.ProductionProgress == 0)
+                    {
+                        current.SetRecipe(minRecipe);
+                    }
+
+                    //If production is ongoing, we should queue a swap when it finishes
+                    else
+                    {
+                        current.ProductionFinished += ProductionFinished;
+                        recipeSwapsPending.TryAdd(current, minRecipe);
                     }
                 }
             }
+        }
+
+        private bool CheckRecipeSwapOK(string minGoodId, RecipeSpecification proposedRecipe, RecipeSpecification currentRecipe, bool currentRecipeValid)
+        {
+            //If no valid recipe was found, don't swap
+            if (proposedRecipe == null)
+            {
+                return false;
+            }
+
+            //If there is no current recipe, we should definitely swap
+            if (currentRecipe == null)
+            {
+                return true;
+            }
+
+            //If the current recipe already produces the minimum storage output and is valid, don't swap
+            foreach (GoodAmount currentProduct in currentRecipe.Products)
+            {
+                if (currentProduct.GoodId.Equals(minGoodId) && currentRecipeValid)
+                {
+                    return false;
+                }
+            }
+
+            //If the new recipe and the old recipe are the same, don't swap
+            if (proposedRecipe.Equals(currentRecipe))
+            {
+                return false;
+            }
+
+            //All checks OK
+            return true;
         }
 
         private bool CheckRecipeValid(Dictionary<string, StorageData> districtInventory, RecipeSpecification recipe)
