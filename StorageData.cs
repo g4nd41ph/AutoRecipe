@@ -15,12 +15,12 @@ namespace AutoRecipe
         }
 
         //Methods
-        public void UpdateStock(int addStock)
+        public void AddStock(int addStock)
         {
             stock += addStock;
         }
 
-        public void UpdateCapacity(int addCapacity)
+        public void AddCapacity(int addCapacity)
         {
             capacity += addCapacity;
         }
