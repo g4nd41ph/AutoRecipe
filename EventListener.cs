@@ -2,15 +2,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Timberborn.Buildings;
 using Timberborn.BuildingsBlocking;
 using Timberborn.GameDistricts;
 using Timberborn.Goods;
 using Timberborn.InventorySystem;
 using Timberborn.SingletonSystem;
 using Timberborn.Stockpiles;
-using Timberborn.Workshops;
-using Timberborn.Buildings;
 using Timberborn.TimeSystem;
+using Timberborn.Workshops;
 
 namespace AutoRecipe
 {
@@ -52,8 +52,11 @@ namespace AutoRecipe
             Manufactory manufactory;
             if (e.Building.TryGetComponentFast<Manufactory>(out manufactory))
             {
-                manufactory.ProductionFinished -= Manufactory_ProductionFinished;
-                manufactory.ProductionFinished += Manufactory_ProductionFinished;
+                if (!manufactory.name.Contains("Refinery"))
+                {
+                    manufactory.ProductionFinished -= Manufactory_ProductionFinished;
+                    manufactory.ProductionFinished += Manufactory_ProductionFinished;
+                }
             }
         }
 
@@ -100,6 +103,12 @@ namespace AutoRecipe
 
                     //Don't attempt a swap if production is in progress
                     if (manufactory.ProductionProgress != 0)
+                    {
+                        continue;
+                    }
+
+                    //Don't swap recipes at the refinery
+                    if (manufactory.name.Contains("Refinery"))
                     {
                         continue;
                     }
