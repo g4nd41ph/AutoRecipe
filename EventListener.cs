@@ -48,14 +48,18 @@ namespace AutoRecipe
 
         public void DistrictBuildingRegistry_FinishedBuildingRegistered(object sender, FinishedBuildingRegisteredEventArgs e)
         {
-            //If this is a manufactory, attach to its ProductionFinished event
+            //Manufactories can make goods and have recipes
             Manufactory manufactory;
             if (e.Building.TryGetComponentFast<Manufactory>(out manufactory))
             {
                 if (!manufactory.name.Contains("Refinery"))
                 {
+                    //Attach to production finished event
                     manufactory.ProductionFinished -= Manufactory_ProductionFinished;
                     manufactory.ProductionFinished += Manufactory_ProductionFinished;
+
+                    //Attempt a swap to set a reasonable recipe to start with
+                    AttemptRecipeSwap(manufactory, null);
                 }
             }
         }
@@ -75,10 +79,38 @@ namespace AutoRecipe
             //Cast sender
             Manufactory manufactory = (Manufactory)sender;
 
-            //Attempt a recipe swap
-            AttemptRecipeSwap(manufactory, null);
-        }
+            //If there is no recipe selected, attempt a swap
+            if (manufactory.CurrentRecipe == null)
+            {
+                AttemptRecipeSwap(manufactory, null);
+                return;
+            }
 
+            //Get the inventory state in a way that we have access to here
+            Dictionary<string, StorageData> inventory = new Dictionary<string, StorageData>();
+            UpdateStorageData(manufactory.Inventory, inventory, true);
+
+            //Check for ingredients and space for products at the manufactory itself
+            foreach (GoodAmount ingredient in manufactory.CurrentRecipe.Ingredients)
+            {
+                if (!inventory.ContainsKey(ingredient.GoodId) || (inventory[ingredient.GoodId].Stock < ingredient.Amount))
+                {
+                    AttemptRecipeSwap(manufactory, null);
+                    return;
+                }
+            }
+
+            //Check for space for products
+            foreach (GoodAmount product in manufactory.CurrentRecipe.Products)
+            {
+                if (!inventory.ContainsKey(product.GoodId) || (inventory[product.GoodId].Capacity - inventory[product.GoodId].Stock < product.Amount))
+                {
+                    AttemptRecipeSwap(manufactory, null);
+                    return;
+                }
+            }
+        }
+        
         [OnEvent]
         public void OnDaytimeStart(DaytimeStartEvent daytimeStarted)
         {
@@ -140,7 +172,7 @@ namespace AutoRecipe
             {
                 return;
             }
-
+            
             //If there's only one valid choice, there's no reason to waste time computing inventory levels
             if (validRecipes.Count == 1 && (manufactory.CurrentRecipe == null || !manufactory.CurrentRecipe.Equals(validRecipes[0])))
             {
@@ -163,7 +195,7 @@ namespace AutoRecipe
                 }
                 districtInventory = GetInventoryData(center);
             }
-
+            
             //Use the inventory data to decide which recipe to swap to (if any)
             string minGoodId = "";
             StorageData minStorage = null;
