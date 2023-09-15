@@ -78,7 +78,37 @@ namespace AutoRecipe
         {
             //Cast sender
             Manufactory manufactory = (Manufactory)sender;
-            AttemptRecipeSwap(manufactory, null);
+
+            //If there is no recipe selected, attempt a swap
+            if (manufactory.CurrentRecipe == null)
+            {
+                AttemptRecipeSwap(manufactory, null);
+                return;
+            }
+
+            //Get the inventory state in a way that we have access to here
+            Dictionary<string, StorageData> inventory = new Dictionary<string, StorageData>();
+            UpdateStorageData(manufactory.GetComponentFast<Building>(), manufactory.Inventory, inventory);
+
+            //Check for ingredients and space for products at the manufactory itself
+            foreach (GoodAmount ingredient in manufactory.CurrentRecipe.Ingredients)
+            {
+                if (!inventory.ContainsKey(ingredient.GoodId) || (inventory[ingredient.GoodId].Stock < ingredient.Amount))
+                {
+                    AttemptRecipeSwap(manufactory, null);
+                    return;
+                }
+            }
+
+            //Check for space for products
+            foreach (GoodAmount product in manufactory.CurrentRecipe.Products)
+            {
+                if (!inventory.ContainsKey(product.GoodId) || (inventory[product.GoodId].Capacity - inventory[product.GoodId].Stock < product.Amount))
+                {
+                    AttemptRecipeSwap(manufactory, null);
+                    return;
+                }
+            }
         }
 
         [OnEvent]
