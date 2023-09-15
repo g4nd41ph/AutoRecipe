@@ -78,37 +78,7 @@ namespace AutoRecipe
         {
             //Cast sender
             Manufactory manufactory = (Manufactory)sender;
-
-            //If there is no recipe selected, attempt a swap
-            if (manufactory.CurrentRecipe == null)
-            {
-                AttemptRecipeSwap(manufactory, null);
-                return;
-            }
-
-            //Get the inventory state in a way that we have access to here
-            Dictionary<string, StorageData> inventory = new Dictionary<string, StorageData>();
-            UpdateStorageData(manufactory.Inventory, inventory, true);
-
-            //Check for ingredients and space for products at the manufactory itself
-            foreach (GoodAmount ingredient in manufactory.CurrentRecipe.Ingredients)
-            {
-                if (!inventory.ContainsKey(ingredient.GoodId) || (inventory[ingredient.GoodId].Stock < ingredient.Amount))
-                {
-                    AttemptRecipeSwap(manufactory, null);
-                    return;
-                }
-            }
-
-            //Check for space for products
-            foreach (GoodAmount product in manufactory.CurrentRecipe.Products)
-            {
-                if (!inventory.ContainsKey(product.GoodId) || (inventory[product.GoodId].Capacity - inventory[product.GoodId].Stock < product.Amount))
-                {
-                    AttemptRecipeSwap(manufactory, null);
-                    return;
-                }
-            }
+            AttemptRecipeSwap(manufactory, null);
         }
 
         [OnEvent]
@@ -145,9 +115,6 @@ namespace AutoRecipe
                         continue;
                     }
 
-                    //Null out the recipe in this manufactory before attempting a swap to prevent deadlocks due to splitting available ingredients unfavorably
-                    manufactory.SetRecipe(null);
-
                     //This manufactory might be stuck, attempt a swap
                     AttemptRecipeSwap(manufactory, districtInventory);
                 }
@@ -177,7 +144,7 @@ namespace AutoRecipe
             }
 
             //If there's only one valid choice, there's no reason to waste time computing inventory levels
-            if (validRecipes.Count == 1 && (manufactory.CurrentRecipe == null || !manufactory.CurrentRecipe.Equals(validRecipes[0])))
+            if (validRecipes.Count == 1)
             {
                 manufactory.SetRecipe(validRecipes[0]);
                 return;
@@ -189,11 +156,13 @@ namespace AutoRecipe
                 DistrictBuilding districtBuilding;
                 if (!manufactory.TryGetComponentFast<DistrictBuilding>(out districtBuilding))
                 {
+                    manufactory.SetRecipe(null);
                     return;
                 }
                 DistrictCenter center = districtBuilding.District;
                 if (center == null)
                 {
+                    manufactory.SetRecipe(null);
                     return;
                 }
                 districtInventory = GetInventoryData(center);
@@ -230,13 +199,35 @@ namespace AutoRecipe
                 }
             }
 
-            //Make sure that the currently selected recipe isn't already producing the minimum storage output
-            if (!CheckRecipeSwapOK(minGoodId, minRecipe, manufactory.CurrentRecipe, currentRecipeValid))
+            //If no valid recipe was found, no swap is needed
+            if (minRecipe == null)
             {
                 return;
             }
 
-            //Swap the recipe
+            //If there is no current recipe, we should definitely swap to whatever was found
+            if (manufactory.CurrentRecipe == null)
+            {
+                manufactory.SetRecipe(minRecipe);
+                return;
+            }
+
+            //If the current recipe already produces the minimum storage output and is valid, don't swap
+            foreach (GoodAmount product in manufactory.CurrentRecipe.Products)
+            {
+                if (product.GoodId.Equals(minGoodId) && currentRecipeValid)
+                {
+                    return;
+                }
+            }
+
+            //If the new recipe and the old recipe are the same, don't swap
+            if (minRecipe.Equals(manufactory.CurrentRecipe))
+            {
+                return;
+            }
+
+            //Swap the recipe to teh best candidate
             manufactory.SetRecipe(minRecipe);
 
             //Remove the ingredients for this recipe from the district storage tracker
@@ -262,30 +253,24 @@ namespace AutoRecipe
             //Build inventory stats and get list of valid manufactories to consider swapping recipes at
             Dictionary<string, StorageData> districtInventory = new Dictionary<string, StorageData>();
             foreach (Building currentBuilding in buildings)
-            {   
-                //Do not include working inventory of manufcatories, since these inventories cannot be used to supply other manufactories
-                if (currentBuilding.GetComponentFast<Manufactory>() != null)
-                {
-                    continue;
-                }
-
-                //Update inventory: Do not include inventories for construction sites, district crossings
+            {
+                //Update inventory: Do not include inventories for construction sites or district crossings
                 Inventory inventory = currentBuilding.GetComponentFast<Inventory>();
                 if (inventory != null && !inventory.ComponentName.Contains("ConstructionSite") && !inventory.ComponentName.Contains("DistrictCrossing"))
                 {
-                    //Use Allowed Goods mode for most inventories. Stockpiles and District Centers must be handled in Stock mode
-                    UpdateStorageData(inventory, districtInventory, currentBuilding.GetComponentFast<Stockpile>() == null && currentBuilding.GetComponentFast<DistrictCenter>() == null);
+                    UpdateStorageData(currentBuilding, inventory, districtInventory);
                 }
             }
 
             return districtInventory;
         }
 
-        public void UpdateStorageData(Inventory inventory, Dictionary<string, StorageData> toUpdate, bool useAllowedGoods)
+        public void UpdateStorageData(Building currentBuilding, Inventory inventory, Dictionary<string, StorageData> toUpdate)
         {
-            if (useAllowedGoods)
+            //Use allowed goods mode for Stockpiles and District Centers
+            if (currentBuilding.GetComponentFast<Stockpile>() == null && currentBuilding.GetComponentFast<DistrictCenter>() == null)
             {
-                //Use allowed goods mode if requested
+                //Update capacity
                 foreach (StorableGoodAmount current in inventory.AllowedGoods)
                 {
                     toUpdate.TryAdd(current.StorableGood.GoodId, new StorageData());
@@ -298,7 +283,7 @@ namespace AutoRecipe
                 List<GoodAmount> capacities = new List<GoodAmount>();
                 inventory.GetCapacity(capacities);
 
-                //Update Capacities
+                //Update capacity
                 foreach (GoodAmount current in capacities)
                 {
                     toUpdate.TryAdd(current.GoodId, new StorageData());
@@ -332,39 +317,6 @@ namespace AutoRecipe
                 {
                     return false;
                 }
-            }
-
-            //All checks OK
-            return true;
-        }
-
-        public bool CheckRecipeSwapOK(string minGoodId, RecipeSpecification proposedRecipe, RecipeSpecification currentRecipe, bool currentRecipeValid)
-        {
-            //If no valid recipe was found, don't swap
-            if (proposedRecipe == null)
-            {
-                return false;
-            }
-
-            //If there is no current recipe, we should definitely swap
-            if (currentRecipe == null)
-            {
-                return true;
-            }
-
-            //If the current recipe already produces the minimum storage output and is valid, don't swap
-            foreach (GoodAmount product in currentRecipe.Products)
-            {
-                if (product.GoodId.Equals(minGoodId) && currentRecipeValid)
-                {
-                    return false;
-                }
-            }
-
-            //If the new recipe and the old recipe are the same, don't swap
-            if (proposedRecipe.Equals(currentRecipe))
-            {
-                return false;
             }
 
             //All checks OK
