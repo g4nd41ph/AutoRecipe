@@ -110,7 +110,7 @@ namespace AutoRecipe
                 }
             }
         }
-        
+
         [OnEvent]
         public void OnDaytimeStart(DaytimeStartEvent daytimeStarted)
         {
@@ -145,6 +145,9 @@ namespace AutoRecipe
                         continue;
                     }
 
+                    //Null out the recipe in this manufactory before attempting a swap to prevent deadlocks due to splitting available ingredients unfavorably
+                    manufactory.SetRecipe(null);
+
                     //This manufactory might be stuck, attempt a swap
                     AttemptRecipeSwap(manufactory, districtInventory);
                 }
@@ -172,7 +175,7 @@ namespace AutoRecipe
             {
                 return;
             }
-            
+
             //If there's only one valid choice, there's no reason to waste time computing inventory levels
             if (validRecipes.Count == 1 && (manufactory.CurrentRecipe == null || !manufactory.CurrentRecipe.Equals(validRecipes[0])))
             {
@@ -195,7 +198,7 @@ namespace AutoRecipe
                 }
                 districtInventory = GetInventoryData(center);
             }
-            
+
             //Use the inventory data to decide which recipe to swap to (if any)
             string minGoodId = "";
             StorageData minStorage = null;
@@ -235,11 +238,17 @@ namespace AutoRecipe
 
             //Swap the recipe
             manufactory.SetRecipe(minRecipe);
+
+            //Remove the ingredients for this recipe from the district storage tracker
+            foreach (GoodAmount current in minRecipe.Ingredients)
+            {
+                districtInventory[current.GoodId].RemoveStock(current.Amount);
+            }
         }
 
         public Dictionary<string, StorageData> GetInventoryData(DistrictCenter center)
         {
-            //Get all buildings in this district that are not paused
+            //Get all buildings in this district that are not paused, and get a list of all manufactories
             List<Building> buildings = new List<Building>();
             foreach (Building current in center.DistrictBuildingRegistry.GetEnabledBuildingsInstant<Building>())
             {
@@ -252,10 +261,15 @@ namespace AutoRecipe
 
             //Build inventory stats and get list of valid manufactories to consider swapping recipes at
             Dictionary<string, StorageData> districtInventory = new Dictionary<string, StorageData>();
-            List<Manufactory> manufactories = new List<Manufactory>();
             foreach (Building currentBuilding in buildings)
-            {
-                //Update inventory: Do not include inventories for construction sites or district crossings
+            {   
+                //Do not include working inventory of manufcatories, since these inventories cannot be used to supply other manufactories
+                if (currentBuilding.GetComponentFast<Manufactory>() != null)
+                {
+                    continue;
+                }
+
+                //Update inventory: Do not include inventories for construction sites, district crossings
                 Inventory inventory = currentBuilding.GetComponentFast<Inventory>();
                 if (inventory != null && !inventory.ComponentName.Contains("ConstructionSite") && !inventory.ComponentName.Contains("DistrictCrossing"))
                 {

@@ -20,6 +20,11 @@ namespace AutoRecipe
             stock += addStock;
         }
 
+        public void RemoveStock(int removeStock)
+        {
+            stock -= removeStock;
+        }
+
         public void AddCapacity(int addCapacity)
         {
             capacity += addCapacity;
